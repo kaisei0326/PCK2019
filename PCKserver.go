@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"log"
 
-	//"strconv"
-
 	"github.com/gin-gonic/gin"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -36,28 +34,19 @@ func sqlInit() *sql.DB {
 
 func rank(r *gin.Engine, db *sql.DB) {
 	userResult := getSQL(db)
-	for i := 1; i <= 3; i++ {
-		//name := "name" + strconv.Itoa(i)
-		//score := "score" + strconv.Itoa(i)
-		r.GET("/", func(c *gin.Context) {
-			c.JSON(200, gin.H{
-				"name":  userResult[i-1].name,
-				"score": userResult[i-1].score,
-			})
+
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"name_1st":  userResult[0].name,
+			"score_1st": userResult[0].score,
+			"name_2nd":  userResult[1].name,
+			"score_2nd": userResult[1].score,
+			"name_3rd":  userResult[2].name,
+			"score_3rd": userResult[2].score,
 		})
-		r.Run(":8080")
-	}
-	/*
-		for _, u := range userResult {
-			r.GET("/", func(c *gin.Context) {
-				c.JSON(200, gin.H{
-					"name": u.name,
-					"score": u.score,
-				})
-			})
-			r.Run(":8080")
-		}
-	*/
+	})
+	r.Run(":8080")
+	//	for _, u := range userResult
 }
 
 func getSQL(db *sql.DB) []User {
