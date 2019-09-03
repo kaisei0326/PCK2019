@@ -20,18 +20,39 @@ type User struct {
 func main() {
 	r := gin.Default()
 	db := sqlInit()
-	rank(r, db)
+	myScore(r, db)
+	// rank(r, db)
 	defer db.Close()
 }
 
 func sqlInit() *sql.DB {
 	db, err := sql.Open("mysql", "root:test@tcp(localhost:3306)/test")
 	if err != nil {
-		log.Fatal("db error.")
+		log.Fatal("SQL open error.")
 	}
 	return db
 }
 
+func myScore(r *gin.Engine, db *sql.DB) {
+	userResult := getSQL(db)
+	//name := r.Query("name")
+
+	for rank, u := range userResult {
+		r.GET("/"+u.name, func(c *gin.Context) {
+			c.JSON(200, gin.H{
+				"rank":  rank,
+				"score": u.score,
+			})
+		})
+	}
+	r.Run(":8080")
+}
+
+/*
+func mapData {
+
+}
+*/
 func rank(r *gin.Engine, db *sql.DB) {
 	userResult := getSQL(db)
 
@@ -46,22 +67,37 @@ func rank(r *gin.Engine, db *sql.DB) {
 		})
 	})
 	r.Run(":8080")
-	//	for _, u := range userResult
 }
 
 func getSQL(db *sql.DB) []User {
 	rows, err := db.Query("select * from test.userdata order by score desc")
 	if err != nil {
-		log.Fatal("db error.")
+		log.Fatal("SQL fetch error.")
 	}
 
 	var userResult []User
 	for rows.Next() {
 		user := User{}
 		if err := rows.Scan(&user.name, &user.score); err != nil {
-			log.Fatal("db error.")
+			log.Fatal("rows fetch error.")
 		}
 		userResult = append(userResult, user)
 	}
 	return (userResult)
 }
+
+/*
+for _, u := range userResult {
+	// ここでQuery呼び出す必要あるけど、r.GETの中でしかQuery呼び出せない
+	//forをgetの中に入れる...？
+	if key = u.name {
+		r.GET("/", func(c *gin.Context) {
+			c.JSON(200, gin.H{
+				"rank":  rank,
+				"score": u.score,
+			})
+		})
+		r.Run(":8080")
+	}
+}
+*/
