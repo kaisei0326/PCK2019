@@ -3,6 +3,8 @@ package main
 import (
 	"database/sql"
 	"log"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -17,28 +19,28 @@ type User struct {
 
 // Map の情報をjson形式で通信するときに使う
 type Map struct {
-	PictID int     `json:"pictID"`
-	Date   int     `json:"date"`
-	Time   int     `json:"time"`
-	Lat    float64 `json:"lat"`
-	Lng    float64 `json:"lng"`
-	Name   string  `json:"name"`
+	PictID   int       `json:"pictID"`
+	DateTime time.Time `json:"datetime"`
+	Lat      float64   `json:"lat"`
+	Lng      float64   `json:"lng"`
+	Name     string    `json:"name"`
 }
 
 func main() {
 	r := gin.Default()
-	db := sqlInit()
+	db := sqlConnect()
 	ranking(r, db)
-	//mapCollection(r, db)
+	mapCollection(r, db)
 	r.Run(":8080")
 	defer db.Close()
 }
 
-func sqlInit() *sql.DB {
-	db, err := sql.Open("mysql", "root:test@tcp(localhost:3306)/test")
+func sqlConnect() *sql.DB {
+	db, err := sql.Open("mysql", "root:test@tcp(localhost:3306)/test?parseTime=true")
 	if err != nil {
 		log.Fatal("SQL open error.")
 	}
+	db.SetConnMaxLifetime(time.Second * 5)
 	return db
 }
 
@@ -93,35 +95,13 @@ func ranking(r *gin.Engine, db *sql.DB) {
 
 	// 上位3人を表示
 	r.GET("/ranking/top", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"name_1st":  userResult[0].Name,
-			"name_2nd":  userResult[1].Name,
-			"name_3rd":  userResult[2].Name,
-			"score_1st": userResult[0].Score,
-			"score_2nd": userResult[1].Score,
-			"score_3rd": userResult[2].Score,
-		})
-	})
-	r.GET("/ranking/top/1st", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"name":  userResult[0].Name,
-			"rank":  1,
-			"score": userResult[0].Score,
-		})
-	})
-	r.GET("/ranking/top/2nd", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"name":  userResult[1].Name,
-			"rank":  2,
-			"score": userResult[1].Score,
-		})
-	})
-	r.GET("/ranking/top/3rd", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"name":  userResult[2].Name,
-			"rank":  3,
-			"score": userResult[2].Score,
-		})
+		for i := 0; i < 3; i++ {
+			c.JSON(200, gin.H{
+				"name":  userResult[i].Name,
+				"rank":  i + 1,
+				"score": userResult[i].Score,
+			})
+		}
 	})
 }
 
@@ -135,46 +115,56 @@ func getUserdata(db *sql.DB) []User {
 	for rows.Next() {
 		user := User{}
 		if err := rows.Scan(&user.Name, &user.Score); err != nil {
-			log.Fatal("rows fetch error.")
+			log.Fatal("userdata fetch error.")
 		}
 		userResult = append(userResult, user)
 	}
 	return userResult
 }
 
-/*
 func mapCollection(r *gin.Engine, db *sql.DB) {
 	mapResult := getMapdata(db)
 	// 位置情報などをjson形式で受け取りDBに保存する
-	// 今の位置から1km以内のデータを読み出す
-	for i := 0; i < 10; i++ {
-		r.GET("mapcollection/near/"+string(i), func(c *gin.Context) {
-			c.JSON(200, gin.H{
-				"pickID": mapResult[i].PictID,
-				"date":   mapResult[i].Date,
-				"time":   mapResult[i].Time,
-				"lat":    mapResult[i].Lat,
-				"lng":    mapResult[i].Lng,
-				"name":   mapResult[i].Name,
-			})
-		})
+	ins, err := db.Prepare("insert into mapdata (date_time, lat_lng, name, pictID) values (?, ST_GeomFromText(?), ?, ?)")
+	if err != nil {
+		log.Fatal(err)
 	}
+	r.POST("/mapcollection/insert", func(c *gin.Context) {
+		var newpict Map
+		c.BindJSON(&newpict)
+		tmp := "POINT(" + strconv.FormatFloat(newpict.Lat, 'f', 6, 64) + " " + strconv.FormatFloat(newpict.Lng, 'f', 6, 64) + ")"
+		log.Println("datetime", newpict.DateTime, "latlng", newpict.Lat, newpict.Lng, "name", newpict.Name, "pictID", newpict.PictID)
+		ins.Exec(newpict.DateTime, tmp, newpict.Name, newpict.PictID)
+		mapResult = getMapdata(db)
+	})
+	// 今の位置から1km以内のデータを読み出す
+	r.GET("/mapcollection/near", func(c *gin.Context) {
+		for i := 0; i < 3; i++ {
+			c.JSON(200, gin.H{
+				"datetime": mapResult[i].DateTime,
+				"lat":      mapResult[i].Lat,
+				"lng":      mapResult[i].Lng,
+				"name":     mapResult[i].Name,
+				"pictID":   mapResult[i].PictID,
+			})
+		}
+	})
 }
 
+// selectに1km以内の条件を追加
 func getMapdata(db *sql.DB) []Map {
 	// 降順にすべてのデータを格納する
-	rows, err := db.Query("select * from test.mapdata")
+	rows, err := db.Query("select pictID, date_time, ST_X(lat_lng), ST_Y(lat_lng), name from test.mapdata")
 	if err != nil {
 		log.Fatal("SQL fetch error.")
 	}
 	var mapResult []Map
 	for rows.Next() {
 		maps := Map{}
-		if err := rows.Scan(&maps.PictID, &maps.Date, &maps.Time, &maps.Lat, &maps.Lng, &maps.Name); err != nil {
-			log.Fatal("maps fetch error.")
+		if err := rows.Scan(&maps.PictID, &maps.DateTime, &maps.Lat, &maps.Lng, &maps.Name); err != nil {
+			log.Fatal("mapdata fetch error.")
 		}
 		mapResult = append(mapResult, maps)
 	}
 	return mapResult
 }
-*/
