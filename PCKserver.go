@@ -167,7 +167,6 @@ func mapCollection(r *gin.Engine, db *sql.DB) {
 	})
 }
 
-// selectに1km以内の条件を追加
 func getMapdata(db *sql.DB, con string) ([]Map, int) {
 	// 降順にすべてのデータを格納する
 	log.Print("select pictID, date_time, ST_X(lat_lng), ST_Y(lat_lng), name from test.mapdata " + con)
