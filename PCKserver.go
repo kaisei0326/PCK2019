@@ -123,7 +123,6 @@ func getUserdata(db *sql.DB) []User {
 }
 
 func mapCollection(r *gin.Engine, db *sql.DB) {
-	mapResult := getMapdata(db)
 	// 位置情報などをjson形式で受け取りDBに保存する
 	ins, err := db.Prepare("insert into mapdata (date_time, lat_lng, name, pictID) values (?, ST_GeomFromText(?), ?, ?)")
 	if err != nil {
@@ -133,13 +132,30 @@ func mapCollection(r *gin.Engine, db *sql.DB) {
 		var newpict Map
 		c.BindJSON(&newpict)
 		tmp := "POINT(" + strconv.FormatFloat(newpict.Lat, 'f', 6, 64) + " " + strconv.FormatFloat(newpict.Lng, 'f', 6, 64) + ")"
-		log.Println("datetime", newpict.DateTime, "latlng", newpict.Lat, newpict.Lng, "name", newpict.Name, "pictID", newpict.PictID)
 		ins.Exec(newpict.DateTime, tmp, newpict.Name, newpict.PictID)
-		mapResult = getMapdata(db)
 	})
 	// 今の位置から1km以内のデータを読み出す
 	r.GET("/mapcollection/near", func(c *gin.Context) {
-		for i := 0; i < 3; i++ {
+		nameFlag := false
+		locFlag := false
+		if c.Query("name") != "" {
+			nameFlag = true
+		}
+		if c.Query("lat") != "" && c.Query("lng") != "" {
+			locFlag = true
+		}
+		con := "where "
+		if nameFlag && locFlag {
+			con += "name = \"" + c.Query("name") + "\" and " + "ST_Within(lat_lng, ST_Buffer(POINT(" + c.Query("lat") + ", " + c.Query("lng") + "), 0.009))"
+		} else if nameFlag {
+			con += "name = \"" + c.Query("name") + "\""
+		} else if locFlag {
+			con += "ST_Within(lat_lng, ST_Buffer(POINT(" + c.Query("lat") + ", " + c.Query("lng") + "), 0.009))"
+		} else {
+			con = ""
+		}
+		mapResult, cnt := getMapdata(db, con)
+		for i := 0; i < cnt; i++ {
 			c.JSON(200, gin.H{
 				"datetime": mapResult[i].DateTime,
 				"lat":      mapResult[i].Lat,
@@ -152,19 +168,22 @@ func mapCollection(r *gin.Engine, db *sql.DB) {
 }
 
 // selectに1km以内の条件を追加
-func getMapdata(db *sql.DB) []Map {
+func getMapdata(db *sql.DB, con string) ([]Map, int) {
 	// 降順にすべてのデータを格納する
-	rows, err := db.Query("select pictID, date_time, ST_X(lat_lng), ST_Y(lat_lng), name from test.mapdata")
+	log.Print("select pictID, date_time, ST_X(lat_lng), ST_Y(lat_lng), name from test.mapdata " + con)
+	rows, err := db.Query("select pictID, date_time, ST_X(lat_lng), ST_Y(lat_lng), name from test.mapdata " + con)
 	if err != nil {
-		log.Fatal("SQL fetch error.")
+		log.Fatal(err)
 	}
 	var mapResult []Map
+	cnt := 0
 	for rows.Next() {
 		maps := Map{}
 		if err := rows.Scan(&maps.PictID, &maps.DateTime, &maps.Lat, &maps.Lng, &maps.Name); err != nil {
 			log.Fatal("mapdata fetch error.")
 		}
 		mapResult = append(mapResult, maps)
+		cnt++
 	}
-	return mapResult
+	return mapResult, cnt
 }
